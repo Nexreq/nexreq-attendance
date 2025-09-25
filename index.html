@@ -60,6 +60,27 @@
           return stored ? JSON.parse(stored) : DEFAULT_EMPLOYEES;
         });
 
+        // Account state: maps user names to an object with a passwordHash and admin flag.
+        // If there are stored accounts in localStorage, load them; otherwise seed with two
+        // default admin accounts. Passwords are stored as base64-encoded strings for
+        // simplicity. In a production system you would never store plain passwords in
+        // the browser.
+        const [accounts, setAccounts] = useState(() => {
+          const stored = localStorage.getItem("nexreq_accounts");
+          if (stored) return JSON.parse(stored);
+          return {
+            Rageeb: { passwordHash: btoa("admin123"), isAdmin: true },
+            Mujtaaba: { passwordHash: btoa("admin123"), isAdmin: true },
+          };
+        });
+
+        // Signup/login form state
+        const [signupName, setSignupName] = useState("");
+        const [signupPassword, setSignupPassword] = useState("");
+        const [loginPassword, setLoginPassword] = useState("");
+        const [showSignup, setShowSignup] = useState(false);
+        const [error, setError] = useState("");
+
         // Logs state: each log has {id, employeeId, startTime, endTime, location}
         const [logs, setLogs] = useState(() => {
           const stored = localStorage.getItem("nexreq_logs");
@@ -83,19 +104,71 @@
           localStorage.setItem("nexreq_logs", JSON.stringify(logs));
         }, [logs]);
 
+        // Persist accounts to localStorage whenever they change
+        useEffect(() => {
+          localStorage.setItem("nexreq_accounts", JSON.stringify(accounts));
+        }, [accounts]);
+
         // Handle login and logout
         const handleLogin = () => {
           const name = loginName.trim();
-          if (!name) return;
-          const admin = name === "Rageeb" || name === "Mujtaaba";
+          const pass = loginPassword;
+          setError("");
+          if (!name || !pass) {
+            setError("Please enter your name and password.");
+            return;
+          }
+          const acct = accounts[name];
+          if (!acct || acct.passwordHash !== btoa(pass)) {
+            setError("Invalid username or password.");
+            return;
+          }
           setUser(name);
-          setIsAdmin(admin);
+          setIsAdmin(!!acct.isAdmin);
           localStorage.setItem("nexreq_user", name);
+          // Clear password field
+          setLoginPassword("");
+          setLoginName("");
         };
         const handleLogout = () => {
           setUser("");
           setIsAdmin(false);
           localStorage.removeItem("nexreq_user");
+        };
+
+        // Handle signing up a new user. If the username already exists, show an error.
+        // New users are created as non-admin. A corresponding employee entry is
+        // automatically added. After successful signup the user is logged in.
+        const handleSignup = () => {
+          const name = signupName.trim();
+          const pass = signupPassword;
+          setError("");
+          if (!name || !pass) {
+            setError("Please enter a name and password to sign up.");
+            return;
+          }
+          if (accounts[name]) {
+            setError("User already exists. Please choose a different name or log in.");
+            return;
+          }
+          // Determine next available employee ID
+          const nextId = employees.length
+            ? Math.max(...employees.map((e) => e.id)) + 1
+            : 1;
+          // Update accounts
+          setAccounts({
+            ...accounts,
+            [name]: { passwordHash: btoa(pass), isAdmin: false },
+          });
+          // Add employee record
+          setEmployees([...employees, { id: nextId, name: name, wfh: false }]);
+          // Log in the new user
+          setUser(name);
+          setIsAdmin(false);
+          localStorage.setItem("nexreq_user", name);
+          // Clear form
+          setSignupName("");
+          setSignupPassword("");
         };
 
         // Utility: format date/time strings for display
@@ -237,25 +310,79 @@
         // employees can clock in/out and admins will see additional controls.
         if (!user) {
           return (
-            <div className="max-w-md mx-auto bg-white p-4 rounded shadow mt-10">
-              <h2 className="text-xl font-semibold mb-4">Login</h2>
-              <div className="flex flex-col gap-2">
-                <input
-                  className="border rounded px-2 py-1"
-                  placeholder="Enter your name"
-                  value={loginName}
-                  onChange={(e) => setLoginName(e.target.value)}
-                />
-                <button
-                  className="px-4 py-2 bg-blue-500 text-white rounded"
-                  onClick={handleLogin}
-                >
-                  Login
-                </button>
-                <p className="text-sm text-gray-600">
-                  Tip: only <strong>Rageeb</strong> or <strong>Mujtaaba</strong> will have admin access.
-                </p>
-              </div>
+            <div className="max-w-md mx-auto bg-white p-6 rounded shadow mt-10">
+              <h2 className="text-xl font-semibold mb-4 text-center">
+                {showSignup ? "Sign Up" : "Login"}
+              </h2>
+              {error && (
+                <p className="mb-2 text-red-600 text-sm text-center">{error}</p>
+              )}
+              {showSignup ? (
+                <div className="flex flex-col gap-2">
+                  <input
+                    className="border rounded px-2 py-1"
+                    placeholder="Enter your name"
+                    value={signupName}
+                    onChange={(e) => setSignupName(e.target.value)}
+                  />
+                  <input
+                    type="password"
+                    className="border rounded px-2 py-1"
+                    placeholder="Create a password"
+                    value={signupPassword}
+                    onChange={(e) => setSignupPassword(e.target.value)}
+                  />
+                  <button
+                    className="px-4 py-2 bg-green-600 text-white rounded"
+                    onClick={handleSignup}
+                  >
+                    Sign Up
+                  </button>
+                  <button
+                    className="text-blue-600 text-sm underline mt-2"
+                    onClick={() => {
+                      setShowSignup(false);
+                      setError("");
+                    }}
+                  >
+                    Have an account? Log in
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <input
+                    className="border rounded px-2 py-1"
+                    placeholder="Enter your name"
+                    value={loginName}
+                    onChange={(e) => setLoginName(e.target.value)}
+                  />
+                  <input
+                    type="password"
+                    className="border rounded px-2 py-1"
+                    placeholder="Password"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                  />
+                    <button
+                      className="px-4 py-2 bg-blue-500 text-white rounded"
+                      onClick={handleLogin}
+                    >
+                      Login
+                    </button>
+                    <button
+                      className="text-blue-600 text-sm underline mt-2"
+                      onClick={() => {
+                        setShowSignup(true);
+                        setError("");
+                      }}
+                    >
+                      Don't have an account? Sign up
+                    </button>
+                  <p className="text-xs text-gray-600 mt-2 text-center">
+                    Admin accounts are preset for <strong>Rageeb</strong> and <strong>Mujtaaba</strong> (default password: <em>admin123</em>).
+                  </p>
+                </div>
+              )}
             </div>
           );
         }
@@ -282,9 +409,9 @@
 
             {/* Employee list and clock actions */}
             <div>
-              <h2 className="text-xl font-semibold mb-2">Employees</h2>
+              <h2 className="text-xl font-semibold mb-2">{isAdmin ? "Employees" : "My Attendance"}</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {employees.map((emp) => (
+                {(isAdmin ? employees : employees.filter((emp) => emp.name === user)).map((emp) => (
                   <div
                     key={emp.id}
                     className="border rounded-lg p-4 bg-white shadow"
