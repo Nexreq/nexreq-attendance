@@ -41,6 +41,19 @@
       ];
 
       function AttendanceApp() {
+        // User/login state. We persist the current user to localStorage so the
+        // page remembers who is logged in. Only users named "Rageeb" or
+        // "Mujtaaba" are considered administrators. All others are normal
+        // employees who can only clock in/out.
+        const [user, setUser] = useState(() => {
+          return localStorage.getItem("nexreq_user") || "";
+        });
+        const [isAdmin, setIsAdmin] = useState(() => {
+          const stored = localStorage.getItem("nexreq_user");
+          return stored === "Rageeb" || stored === "Mujtaaba";
+        });
+        const [loginName, setLoginName] = useState("");
+
         // Employees state: load from localStorage or use defaults
         const [employees, setEmployees] = useState(() => {
           const stored = localStorage.getItem("nexreq_employees");
@@ -69,6 +82,21 @@
         useEffect(() => {
           localStorage.setItem("nexreq_logs", JSON.stringify(logs));
         }, [logs]);
+
+        // Handle login and logout
+        const handleLogin = () => {
+          const name = loginName.trim();
+          if (!name) return;
+          const admin = name === "Rageeb" || name === "Mujtaaba";
+          setUser(name);
+          setIsAdmin(admin);
+          localStorage.setItem("nexreq_user", name);
+        };
+        const handleLogout = () => {
+          setUser("");
+          setIsAdmin(false);
+          localStorage.removeItem("nexreq_user");
+        };
 
         // Utility: format date/time strings for display
         const formatDateTime = (iso) => {
@@ -205,8 +233,53 @@
           URL.revokeObjectURL(url);
         };
 
+        // If no user is logged in, show a simple login form. Once logged in,
+        // employees can clock in/out and admins will see additional controls.
+        if (!user) {
+          return (
+            <div className="max-w-md mx-auto bg-white p-4 rounded shadow mt-10">
+              <h2 className="text-xl font-semibold mb-4">Login</h2>
+              <div className="flex flex-col gap-2">
+                <input
+                  className="border rounded px-2 py-1"
+                  placeholder="Enter your name"
+                  value={loginName}
+                  onChange={(e) => setLoginName(e.target.value)}
+                />
+                <button
+                  className="px-4 py-2 bg-blue-500 text-white rounded"
+                  onClick={handleLogin}
+                >
+                  Login
+                </button>
+                <p className="text-sm text-gray-600">
+                  Tip: only <strong>Rageeb</strong> or <strong>Mujtaaba</strong> will have admin access.
+                </p>
+              </div>
+            </div>
+          );
+        }
+
         return (
           <div className="space-y-8">
+            {/* Logged in banner */}
+            <div className="flex justify-between items-center bg-white shadow px-4 py-2 rounded">
+              <div>
+                <span className="font-medium">Logged in as:</span> {user}
+                {isAdmin ? (
+                  <span className="ml-2 text-sm text-green-600 font-semibold">(Admin)</span>
+                ) : (
+                  <span className="ml-2 text-sm text-gray-600">(Employee)</span>
+                )}
+              </div>
+              <button
+                className="px-3 py-1 bg-gray-200 rounded text-sm"
+                onClick={handleLogout}
+              >
+                Logout
+              </button>
+            </div>
+
             {/* Employee list and clock actions */}
             <div>
               <h2 className="text-xl font-semibold mb-2">Employees</h2>
@@ -238,114 +311,120 @@
                           Clock In
                         </button>
                       )}
-                      {/* Toggle WFH for editing */}
-                      <button
-                        className="px-2 py-1 border rounded text-xs"
-                        onClick={() => toggleWFH(emp.id)}
-                      >
-                        Toggle WFH
-                      </button>
+                      {/* Toggle WFH for editing (admin only) */}
+                      {isAdmin && (
+                        <button
+                          className="px-2 py-1 border rounded text-xs"
+                          onClick={() => toggleWFH(emp.id)}
+                        >
+                          Toggle WFH
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Add Employee */}
-            <div className="p-4 bg-white shadow rounded">
-              <h2 className="text-lg font-semibold mb-2">Add Employee</h2>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  className="border rounded px-2 py-1 flex-grow"
-                  placeholder="Employee name"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                />
-                <label className="flex items-center gap-1">
+            {/* Add Employee (admin only) */}
+            {isAdmin && (
+              <div className="p-4 bg-white shadow rounded">
+                <h2 className="text-lg font-semibold mb-2">Add Employee</h2>
+                <div className="flex flex-col sm:flex-row gap-2">
                   <input
-                    type="checkbox"
-                    checked={newWFH}
-                    onChange={(e) => setNewWFH(e.target.checked)}
+                    className="border rounded px-2 py-1 flex-grow"
+                    placeholder="Employee name"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
                   />
-                  WFH
-                </label>
-                <button
-                  className="px-4 py-2 bg-blue-500 text-white rounded"
-                  onClick={addEmployee}
-                >
-                  Add
-                </button>
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={newWFH}
+                      onChange={(e) => setNewWFH(e.target.checked)}
+                    />
+                    WFH
+                  </label>
+                  <button
+                    className="px-4 py-2 bg-blue-500 text-white rounded"
+                    onClick={addEmployee}
+                  >
+                    Add
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Summary */}
-            <div className="p-4 bg-white shadow rounded">
-              <h2 className="text-lg font-semibold mb-2">Summary / Payroll</h2>
-              <div className="flex flex-wrap gap-2 mb-2 items-center">
-                <label>
-                  From: 
-                  <input
-                    type="date"
-                    className="border rounded px-2 py-1 ml-1"
-                    value={fromDate}
-                    onChange={(e) => setFromDate(e.target.value)}
-                  />
-                </label>
-                <label>
-                  To: 
-                  <input
-                    type="date"
-                    className="border rounded px-2 py-1 ml-1"
-                    value={toDate}
-                    onChange={(e) => setToDate(e.target.value)}
-                  />
-                </label>
-                <button
-                  className="px-3 py-1 bg-gray-200 rounded"
-                  onClick={setRangeThisWeek}
-                >
-                  This Week
-                </button>
-                <button
-                  className="px-3 py-1 bg-gray-200 rounded"
-                  onClick={setRangeThisMonth}
-                >
-                  This Month
-                </button>
-                <button
-                  className="px-3 py-1 bg-gray-200 rounded"
-                  onClick={setRangeLastMonth}
-                >
-                  Last Month
-                </button>
-                <button
-                  className="px-3 py-1 bg-green-600 text-white rounded ml-auto"
-                  onClick={exportCSV}
-                >
-                  Export CSV
-                </button>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full border">
-                  <thead className="bg-gray-100">
-                    <tr>
-                      <th className="px-2 py-1 border">Employee</th>
-                      <th className="px-2 py-1 border">Hours (in range)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {employees.map((emp) => (
-                      <tr key={emp.id} className="even:bg-gray-50">
-                        <td className="px-2 py-1 border">{emp.name}</td>
-                        <td className="px-2 py-1 border">
-                          {getEmployeeHours(emp.id).toFixed(2)}
-                        </td>
+            {/* Summary (admin only) */}
+            {isAdmin && (
+              <div className="p-4 bg-white shadow rounded">
+                <h2 className="text-lg font-semibold mb-2">Summary / Payroll</h2>
+                <div className="flex flex-wrap gap-2 mb-2 items-center">
+                  <label>
+                    From: 
+                    <input
+                      type="date"
+                      className="border rounded px-2 py-1 ml-1"
+                      value={fromDate}
+                      onChange={(e) => setFromDate(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    To: 
+                    <input
+                      type="date"
+                      className="border rounded px-2 py-1 ml-1"
+                      value={toDate}
+                      onChange={(e) => setToDate(e.target.value)}
+                    />
+                  </label>
+                  <button
+                    className="px-3 py-1 bg-gray-200 rounded"
+                    onClick={setRangeThisWeek}
+                  >
+                    This Week
+                  </button>
+                  <button
+                    className="px-3 py-1 bg-gray-200 rounded"
+                    onClick={setRangeThisMonth}
+                  >
+                    This Month
+                  </button>
+                  <button
+                    className="px-3 py-1 bg-gray-200 rounded"
+                    onClick={setRangeLastMonth}
+                  >
+                    Last Month
+                  </button>
+                  <button
+                    className="px-3 py-1 bg-green-600 text-white rounded ml-auto"
+                    onClick={exportCSV}
+                  >
+                    Export CSV
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-2 py-1 border">Employee</th>
+                        <th className="px-2 py-1 border">Hours (in range)</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {employees.map((emp) => (
+                        <tr key={emp.id} className="even:bg-gray-50">
+                          <td className="px-2 py-1 border">{emp.name}</td>
+                          <td className="px-2 py-1 border">
+                            {getEmployeeHours(emp.id).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         );
       }
