@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nexreq Attendance</title>
+    <!-- Include Tailwind via CDN for basic styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Include React and ReactDOM from unpkg -->
+    <script
+      crossorigin
+      src="https://unpkg.com/react@18/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"
+    ></script>
+    <!-- Include Babel for JSX transformation in the browser -->
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+  </head>
+  <body class="bg-gray-100 text-gray-900">
+    <div class="container mx-auto p-4">
+      <h1 class="text-2xl font-bold mb-4">Nexreq Attendance</h1>
+      <div id="root"></div>
+    </div>
+    <script type="text/babel">
+      const { useState, useEffect } = React;
+
+      // Default list of employees. Khursheeda Parveen is working from home (WFH) by default.
+      const DEFAULT_EMPLOYEES = [
+        { id: 1, name: "Khursheeda Parveen", wfh: true },
+        { id: 2, name: "Employee 2", wfh: false },
+        { id: 3, name: "Employee 3", wfh: false },
+        { id: 4, name: "Employee 4", wfh: false },
+        { id: 5, name: "Employee 5", wfh: false },
+        { id: 6, name: "Employee 6", wfh: false },
+        { id: 7, name: "Employee 7", wfh: false },
+        { id: 8, name: "Employee 8", wfh: false },
+        { id: 9, name: "Employee 9", wfh: false },
+        { id: 10, name: "Employee 10", wfh: false },
+      ];
+
+      function AttendanceApp() {
+        // Employees state: load from localStorage or use defaults
+        const [employees, setEmployees] = useState(() => {
+          const stored = localStorage.getItem("nexreq_employees");
+          return stored ? JSON.parse(stored) : DEFAULT_EMPLOYEES;
+        });
+
+        // Logs state: each log has {id, employeeId, startTime, endTime, location}
+        const [logs, setLogs] = useState(() => {
+          const stored = localStorage.getItem("nexreq_logs");
+          return stored ? JSON.parse(stored) : [];
+        });
+
+        // Date range selection for summary
+        const todayStr = new Date().toISOString().split("T")[0];
+        const [fromDate, setFromDate] = useState(todayStr);
+        const [toDate, setToDate] = useState(todayStr);
+
+        // New employee input
+        const [newName, setNewName] = useState("");
+        const [newWFH, setNewWFH] = useState(false);
+
+        // Persist employees and logs to localStorage
+        useEffect(() => {
+          localStorage.setItem("nexreq_employees", JSON.stringify(employees));
+        }, [employees]);
+        useEffect(() => {
+          localStorage.setItem("nexreq_logs", JSON.stringify(logs));
+        }, [logs]);
+
+        // Utility: format date/time strings for display
+        const formatDateTime = (iso) => {
+          if (!iso) return "";
+          const d = new Date(iso);
+          return (
+            d.toLocaleDateString(undefined, {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            }) +
+            " " +
+            d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+          );
+        };
+
+        // Add a new employee
+        const addEmployee = () => {
+          if (!newName.trim()) return;
+          const nextId = employees.length ? Math.max(...employees.map((e) => e.id)) + 1 : 1;
+          setEmployees([...employees, { id: nextId, name: newName.trim(), wfh: newWFH }]);
+          setNewName("");
+          setNewWFH(false);
+        };
+
+        // Toggle WFH setting for an employee (in admin mode)
+        const toggleWFH = (id) => {
+          setEmployees(
+            employees.map((e) => (e.id === id ? { ...e, wfh: !e.wfh } : e))
+          );
+        };
+
+        // Clock in function
+        const clockIn = (employee) => {
+          // Create new log entry
+          const newLog = {
+            id: logs.length ? Math.max(...logs.map((l) => l.id)) + 1 : 1,
+            employeeId: employee.id,
+            startTime: new Date().toISOString(),
+            endTime: null,
+            location: employee.wfh ? "WFH" : "Office",
+          };
+          setLogs([...logs, newLog]);
+        };
+
+        // Clock out function
+        const clockOut = (employee) => {
+          // Find the most recent log without endTime for this employee
+          const lastIndex = logs
+            .slice()
+            .reverse()
+            .findIndex((log) => log.employeeId === employee.id && !log.endTime);
+          if (lastIndex < 0) return; // nothing to clock out
+          const idx = logs.length - 1 - lastIndex;
+          const updatedLogs = logs.map((log, i) =>
+            i === idx ? { ...log, endTime: new Date().toISOString() } : log
+          );
+          setLogs(updatedLogs);
+        };
+
+        // Check if employee is currently clocked in
+        const isClockedIn = (employeeId) => {
+          return logs.some(
+            (log) => log.employeeId === employeeId && log.endTime === null
+          );
+        };
+
+        // Compute hours for logs in the selected date range
+        const getEmployeeHours = (employeeId) => {
+          const from = new Date(fromDate + "T00:00:00");
+          const to = new Date(toDate + "T23:59:59");
+          let total = 0;
+          logs.forEach((log) => {
+            if (log.employeeId !== employeeId || !log.endTime) return;
+            const start = new Date(log.startTime);
+            const end = new Date(log.endTime);
+            if (end < from || start > to) return;
+            // Clamp start and end within the range
+            const s = start < from ? from : start;
+            const e = end > to ? to : end;
+            total += (e - s) / 3600000; // hours
+          });
+          return total;
+        };
+
+        // Quick ranges
+        const setRangeThisWeek = () => {
+          const now = new Date();
+          const day = now.getDay(); // 0 Sunday
+          const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Monday as start
+          const monday = new Date(now.setDate(diff));
+          const sunday = new Date(monday);
+          sunday.setDate(monday.getDate() + 6);
+          setFromDate(monday.toISOString().split("T")[0]);
+          setToDate(sunday.toISOString().split("T")[0]);
+        };
+        const setRangeThisMonth = () => {
+          const now = new Date();
+          const first = new Date(now.getFullYear(), now.getMonth(), 1);
+          const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+          setFromDate(first.toISOString().split("T")[0]);
+          setToDate(last.toISOString().split("T")[0]);
+        };
+        const setRangeLastMonth = () => {
+          const now = new Date();
+          const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          const last = new Date(now.getFullYear(), now.getMonth(), 0);
+          setFromDate(first.toISOString().split("T")[0]);
+          setToDate(last.toISOString().split("T")[0]);
+        };
+
+        // Export logs to CSV
+        const exportCSV = () => {
+          const lines = [
+            "Employee,Start Time,End Time,Hours,Location",
+          ];
+          logs.forEach((log) => {
+            if (!log.endTime) return; // skip open logs
+            const emp = employees.find((e) => e.id === log.employeeId);
+            const start = formatDateTime(log.startTime);
+            const end = formatDateTime(log.endTime);
+            const hours = ((new Date(log.endTime) - new Date(log.startTime)) / 3600000).toFixed(2);
+            lines.push(
+              `${emp ? emp.name : log.employeeId},${start},${end},${hours},${log.location}`
+            );
+          });
+          const csvContent = lines.join("\n");
+          const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `nexreq_attendance_logs_${fromDate}_${toDate}.csv`;
+          link.click();
+          URL.revokeObjectURL(url);
+        };
+
+        return (
+          <div className="space-y-8">
+            {/* Employee list and clock actions */}
+            <div>
+              <h2 className="text-xl font-semibold mb-2">Employees</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {employees.map((emp) => (
+                  <div
+                    key={emp.id}
+                    className="border rounded-lg p-4 bg-white shadow"
+                  >
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="font-medium">{emp.name}</span>
+                      <span className="text-xs px-2 py-1 rounded bg-indigo-100 text-indigo-700">
+                        {emp.wfh ? "WFH" : "Office"}
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      {isClockedIn(emp.id) ? (
+                        <button
+                          className="px-3 py-1 bg-red-500 text-white rounded"
+                          onClick={() => clockOut(emp)}
+                        >
+                          Clock Out
+                        </button>
+                      ) : (
+                        <button
+                          className="px-3 py-1 bg-green-500 text-white rounded"
+                          onClick={() => clockIn(emp)}
+                        >
+                          Clock In
+                        </button>
+                      )}
+                      {/* Toggle WFH for editing */}
+                      <button
+                        className="px-2 py-1 border rounded text-xs"
+                        onClick={() => toggleWFH(emp.id)}
+                      >
+                        Toggle WFH
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Add Employee */}
+            <div className="p-4 bg-white shadow rounded">
+              <h2 className="text-lg font-semibold mb-2">Add Employee</h2>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  className="border rounded px-2 py-1 flex-grow"
+                  placeholder="Employee name"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                />
+                <label className="flex items-center gap-1">
+                  <input
+                    type="checkbox"
+                    checked={newWFH}
+                    onChange={(e) => setNewWFH(e.target.checked)}
+                  />
+                  WFH
+                </label>
+                <button
+                  className="px-4 py-2 bg-blue-500 text-white rounded"
+                  onClick={addEmployee}
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+
+            {/* Summary */}
+            <div className="p-4 bg-white shadow rounded">
+              <h2 className="text-lg font-semibold mb-2">Summary / Payroll</h2>
+              <div className="flex flex-wrap gap-2 mb-2 items-center">
+                <label>
+                  From: 
+                  <input
+                    type="date"
+                    className="border rounded px-2 py-1 ml-1"
+                    value={fromDate}
+                    onChange={(e) => setFromDate(e.target.value)}
+                  />
+                </label>
+                <label>
+                  To: 
+                  <input
+                    type="date"
+                    className="border rounded px-2 py-1 ml-1"
+                    value={toDate}
+                    onChange={(e) => setToDate(e.target.value)}
+                  />
+                </label>
+                <button
+                  className="px-3 py-1 bg-gray-200 rounded"
+                  onClick={setRangeThisWeek}
+                >
+                  This Week
+                </button>
+                <button
+                  className="px-3 py-1 bg-gray-200 rounded"
+                  onClick={setRangeThisMonth}
+                >
+                  This Month
+                </button>
+                <button
+                  className="px-3 py-1 bg-gray-200 rounded"
+                  onClick={setRangeLastMonth}
+                >
+                  Last Month
+                </button>
+                <button
+                  className="px-3 py-1 bg-green-600 text-white rounded ml-auto"
+                  onClick={exportCSV}
+                >
+                  Export CSV
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full border">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th className="px-2 py-1 border">Employee</th>
+                      <th className="px-2 py-1 border">Hours (in range)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {employees.map((emp) => (
+                      <tr key={emp.id} className="even:bg-gray-50">
+                        <td className="px-2 py-1 border">{emp.name}</td>
+                        <td className="px-2 py-1 border">
+                          {getEmployeeHours(emp.id).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<AttendanceApp />);
+    </script>
+  </body>
+</html>
