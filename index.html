@@ -74,17 +74,20 @@
           const stored = localStorage.getItem("nexreq_accounts");
           if (stored) return JSON.parse(stored);
           return {
-            Rageeb: { passwordHash: btoa("admin123"), isAdmin: true },
-            Mujtaaba: { passwordHash: btoa("admin123"), isAdmin: true },
+            Rageeb: { passwordHash: btoa("admin123"), isAdmin: true, email: "" },
+            Mujtaaba: { passwordHash: btoa("admin123"), isAdmin: true, email: "" },
           };
         });
 
-        // Signup/login form state
-        const [signupName, setSignupName] = useState("");
-        const [signupPassword, setSignupPassword] = useState("");
+        // Login and password management state
+        // Employees no longer sign up themselves – accounts are created by the admin
         const [loginPassword, setLoginPassword] = useState("");
-        const [showSignup, setShowSignup] = useState(false);
         const [error, setError] = useState("");
+        // Whether the user is resetting a forgotten password
+        const [showReset, setShowReset] = useState(false);
+        // Temp state for reset email/username and new password
+        const [resetIdentifier, setResetIdentifier] = useState("");
+        const [resetNewPassword, setResetNewPassword] = useState("");
 
         // Logs state: each log has {id, employeeId, startTime, endTime, location}
         const [logs, setLogs] = useState(() => {
@@ -100,6 +103,12 @@
         // New employee input
         const [newName, setNewName] = useState("");
         const [newWFH, setNewWFH] = useState(false);
+        // Additional fields for admin when creating a new employee (email and password)
+        const [newEmail, setNewEmail] = useState("");
+        const [newEmpPassword, setNewEmpPassword] = useState("");
+        // Allow logged-in users to change their password
+        const [changePwVisible, setChangePwVisible] = useState(false);
+        const [changePwNew, setChangePwNew] = useState("");
 
         // Persist employees and logs to localStorage
         useEffect(() => {
@@ -116,65 +125,51 @@
 
         // Handle login and logout
         const handleLogin = () => {
-          const name = loginName.trim();
+          const entered = loginName.trim();
           const pass = loginPassword;
           setError("");
-          if (!name || !pass) {
-            setError("Please enter your name and password.");
+          if (!entered || !pass) {
+            setError("Please enter your username and password.");
             return;
           }
-          const acct = accounts[name];
+          // Determine the account key: direct username match or email match
+          let accountKey = entered;
+          if (!accounts[accountKey]) {
+            // search by email
+            Object.keys(accounts).forEach((uname) => {
+              if (accounts[uname].email && accounts[uname].email === entered) {
+                accountKey = uname;
+              }
+            });
+          }
+          const acct = accounts[accountKey];
           if (!acct || acct.passwordHash !== btoa(pass)) {
             setError("Invalid username or password.");
             return;
           }
-          setUser(name);
+          setUser(accountKey);
           setIsAdmin(!!acct.isAdmin);
-          localStorage.setItem("nexreq_user", name);
+          localStorage.setItem("nexreq_user", accountKey);
           // Clear password field
           setLoginPassword("");
           setLoginName("");
+          // Ensure reset state is hidden
+          setShowReset(false);
         };
         const handleLogout = () => {
           setUser("");
           setIsAdmin(false);
           localStorage.removeItem("nexreq_user");
+          // also hide any reset or change password UI when logging out
+          setShowReset(false);
+          setChangePwVisible(false);
         };
 
-        // Handle signing up a new user. If the username already exists, show an error.
-        // New users are created as non-admin. A corresponding employee entry is
-        // automatically added. After successful signup the user is logged in.
-        const handleSignup = () => {
-          const name = signupName.trim();
-          const pass = signupPassword;
-          setError("");
-          if (!name || !pass) {
-            setError("Please enter a name and password to sign up.");
-            return;
-          }
-          if (accounts[name]) {
-            setError("User already exists. Please choose a different name or log in.");
-            return;
-          }
-          // Determine next available employee ID
-          const nextId = employees.length
-            ? Math.max(...employees.map((e) => e.id)) + 1
-            : 1;
-          // Update accounts
-          setAccounts({
-            ...accounts,
-            [name]: { passwordHash: btoa(pass), isAdmin: false },
-          });
-          // Add employee record
-          setEmployees([...employees, { id: nextId, name: name, wfh: false }]);
-          // Log in the new user
-          setUser(name);
-          setIsAdmin(false);
-          localStorage.setItem("nexreq_user", name);
-          // Clear form
-          setSignupName("");
-          setSignupPassword("");
-        };
+        /*
+         * Removed handleSignup – employee self sign-up is no longer supported.
+         * Employees are now provisioned by the admin and accounts are created
+         * with an initial password and email address.
+         */
 
         // Utility: format date/time strings for display
         const formatDateTime = (iso) => {
@@ -191,12 +186,37 @@
           );
         };
 
-        // Add a new employee
+        // Add a new employee (admin only). Admin must supply a name, email and initial password.
+        // A corresponding account will be created and an informational alert will be shown.
         const addEmployee = () => {
-          if (!newName.trim()) return;
+          const name = newName.trim();
+          const email = newEmail.trim();
+          const pw = newEmpPassword;
+          if (!name || !email || !pw) {
+            alert("Please enter an employee name, email and password.");
+            return;
+          }
+          // Prevent duplicate usernames
+          if (accounts[name]) {
+            alert("An account with this username already exists.");
+            return;
+          }
+          // Determine next available employee ID
           const nextId = employees.length ? Math.max(...employees.map((e) => e.id)) + 1 : 1;
-          setEmployees([...employees, { id: nextId, name: newName.trim(), wfh: newWFH }]);
+          // Create employee record
+          setEmployees([...employees, { id: nextId, name: name, wfh: newWFH }]);
+          // Create account with hashed password and email
+          setAccounts({
+            ...accounts,
+            [name]: { passwordHash: btoa(pw), isAdmin: false, email: email },
+          });
+          // Simulate sending credentials via email by showing an alert. In a real
+          // application you would integrate with an email service here.
+          alert(`Credentials for ${name} have been created and sent to ${email}.`);
+          // Reset form fields
           setNewName("");
+          setNewEmail("");
+          setNewEmpPassword("");
           setNewWFH(false);
         };
 
@@ -371,53 +391,98 @@
           URL.revokeObjectURL(url);
         };
 
-        // If no user is logged in, show a simple login form. Once logged in,
-        // employees can clock in/out and admins will see additional controls.
+        // If no user is logged in, show a login form or password reset form. Employees
+        // no longer self-sign up; accounts are provisioned by an administrator. Once
+        // logged in, employees can clock in/out and admins will see additional controls.
         if (!user) {
           return (
             <div className="max-w-md mx-auto bg-white p-6 rounded shadow mt-10">
               <h2 className="text-xl font-semibold mb-4 text-center">
-                {showSignup ? "Sign Up" : "Login"}
+                {showReset ? "Reset Password" : "Login"}
               </h2>
               {error && (
                 <p className="mb-2 text-red-600 text-sm text-center">{error}</p>
               )}
-              {showSignup ? (
+              {showReset ? (
+                // Password reset form
                 <div className="flex flex-col gap-2">
                   <input
                     className="border rounded px-2 py-1"
-                    placeholder="Enter your name"
-                    value={signupName}
-                    onChange={(e) => setSignupName(e.target.value)}
+                    placeholder="Enter your username or email"
+                    value={resetIdentifier}
+                    onChange={(e) => setResetIdentifier(e.target.value)}
                   />
                   <input
                     type="password"
                     className="border rounded px-2 py-1"
-                    placeholder="Create a password"
-                    value={signupPassword}
-                    onChange={(e) => setSignupPassword(e.target.value)}
+                    placeholder="Enter a new password"
+                    value={resetNewPassword}
+                    onChange={(e) => setResetNewPassword(e.target.value)}
                   />
                   <button
                     className="px-4 py-2 bg-green-600 text-white rounded"
-                    onClick={handleSignup}
+                    onClick={() => {
+                      // Attempt to reset the user's password
+                      const identifier = resetIdentifier.trim();
+                      const newPass = resetNewPassword;
+                      setError("");
+                      if (!identifier || !newPass) {
+                        setError("Please enter your username/email and a new password.");
+                        return;
+                      }
+                      // Find the account by username or email
+                      let foundUser = null;
+                      // Check username directly
+                      if (accounts[identifier]) {
+                        foundUser = identifier;
+                      } else {
+                        // Search by email in account values
+                        Object.keys(accounts).forEach((uname) => {
+                          if (accounts[uname].email && accounts[uname].email === identifier) {
+                            foundUser = uname;
+                          }
+                        });
+                      }
+                      if (!foundUser) {
+                        setError("No account found for that username or email.");
+                        return;
+                      }
+                      // Update password hash
+                      const updatedAccounts = { ...accounts };
+                      updatedAccounts[foundUser] = {
+                        ...updatedAccounts[foundUser],
+                        passwordHash: btoa(newPass),
+                      };
+                      setAccounts(updatedAccounts);
+                      // Optionally, inform the user via alert that password was reset
+                      alert(`Password reset successfully for ${foundUser}. Please log in with your new password.`);
+                      // Clear fields and return to login
+                      setResetIdentifier("");
+                      setResetNewPassword("");
+                      setShowReset(false);
+                    }}
                   >
-                    Sign Up
+                    Reset Password
                   </button>
                   <button
                     className="text-blue-600 text-sm underline mt-2"
                     onClick={() => {
-                      setShowSignup(false);
+                      // Cancel reset
+                      setShowReset(false);
+                      setResetIdentifier("");
+                      setResetNewPassword("");
                       setError("");
                     }}
                   >
-                    Have an account? Log in
+                    Cancel
                   </button>
                 </div>
               ) : (
+                // Login form
                 <div className="flex flex-col gap-2">
                   <input
                     className="border rounded px-2 py-1"
-                    placeholder="Enter your name"
+                    placeholder="Enter your username or email"
                     value={loginName}
                     onChange={(e) => setLoginName(e.target.value)}
                   />
@@ -428,28 +493,21 @@
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                   />
-                    <button
-                      className="px-4 py-2 bg-blue-500 text-white rounded"
-                      onClick={handleLogin}
-                    >
-                      Login
-                    </button>
-                    <button
-                      className="text-blue-600 text-sm underline mt-2"
-                      onClick={() => {
-                        setShowSignup(true);
-                        setError("");
-                      }}
-                    >
-                      Don't have an account? Sign up
-                    </button>
-                  {/*
-                    Informational note for administrative accounts.  We keep this brief to avoid
-                    disclosing any default credentials.  Rageeb and Mujtaaba have admin privileges by default.
-                  */}
-                  <p className="text-xs text-gray-600 mt-2 text-center">
-                    Admin accounts are preset for <strong>Rageeb</strong> and <strong>Mujtaaba</strong>.
-                  </p>
+                  <button
+                    className="px-4 py-2 bg-blue-500 text-white rounded"
+                    onClick={handleLogin}
+                  >
+                    Login
+                  </button>
+                  <button
+                    className="text-blue-600 text-sm underline mt-2"
+                    onClick={() => {
+                      setShowReset(true);
+                      setError("");
+                    }}
+                  >
+                    Forgot password?
+                  </button>
                 </div>
               )}
             </div>
@@ -468,13 +526,67 @@
                   <span className="ml-2 text-sm text-gray-600">(Employee)</span>
                 )}
               </div>
-              <button
-                className="px-3 py-1 bg-gray-200 rounded text-sm"
-                onClick={handleLogout}
-              >
-                Logout
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  className="px-3 py-1 bg-gray-200 rounded text-sm"
+                  onClick={() => setChangePwVisible(!changePwVisible)}
+                >
+                  Change Password
+                </button>
+                <button
+                  className="px-3 py-1 bg-gray-200 rounded text-sm"
+                  onClick={handleLogout}
+                >
+                  Logout
+                </button>
+              </div>
             </div>
+
+            {/* Change password form when requested */}
+            {changePwVisible && (
+              <div className="p-4 bg-white shadow rounded">
+                <h3 className="text-md font-semibold mb-2">Change Password</h3>
+                <input
+                  type="password"
+                  className="border rounded px-2 py-1 mb-2 w-full"
+                  placeholder="New password"
+                  value={changePwNew}
+                  onChange={(e) => setChangePwNew(e.target.value)}
+                />
+                <div className="flex gap-2">
+                  <button
+                    className="px-3 py-1 bg-green-600 text-white rounded"
+                    onClick={() => {
+                      if (!changePwNew) {
+                        alert("Please enter a new password.");
+                        return;
+                      }
+                      // Update the current user's password
+                      const updatedAccounts = { ...accounts };
+                      updatedAccounts[user] = {
+                        ...updatedAccounts[user],
+                        passwordHash: btoa(changePwNew),
+                      };
+                      setAccounts(updatedAccounts);
+                      alert("Password updated successfully.");
+                      setChangePwNew("");
+                      setChangePwVisible(false);
+                    }}
+                  >
+                    Save
+                  </button>
+                  <button
+                    className="px-3 py-1 bg-gray-300 rounded"
+                    onClick={() => {
+                      setChangePwNew("");
+                      setChangePwVisible(false);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Employee list and clock actions */}
             <div>
@@ -545,27 +657,42 @@
             {isAdmin && (
               <div className="p-4 bg-white shadow rounded">
                 <h2 className="text-lg font-semibold mb-2">Add Employee</h2>
-                <div className="flex flex-col sm:flex-row gap-2">
+                <div className="flex flex-col gap-2">
                   <input
-                    className="border rounded px-2 py-1 flex-grow"
+                    className="border rounded px-2 py-1"
                     placeholder="Employee name"
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                   />
-                  <label className="flex items-center gap-1">
-                    <input
-                      type="checkbox"
-                      checked={newWFH}
-                      onChange={(e) => setNewWFH(e.target.checked)}
-                    />
-                    WFH
-                  </label>
-                  <button
-                    className="px-4 py-2 bg-blue-500 text-white rounded"
-                    onClick={addEmployee}
-                  >
-                    Add
-                  </button>
+                  <input
+                    className="border rounded px-2 py-1"
+                    placeholder="Email"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                  />
+                  <input
+                    type="password"
+                    className="border rounded px-2 py-1"
+                    placeholder="Initial password"
+                    value={newEmpPassword}
+                    onChange={(e) => setNewEmpPassword(e.target.value)}
+                  />
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={newWFH}
+                        onChange={(e) => setNewWFH(e.target.checked)}
+                      />
+                      WFH
+                    </label>
+                    <button
+                      className="px-4 py-2 bg-blue-500 text-white rounded"
+                      onClick={addEmployee}
+                    >
+                      Add
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
