@@ -34,16 +34,20 @@
 
       // Default list of employees. Khursheeda Parveen is working from home (WFH) by default.
       const DEFAULT_EMPLOYEES = [
-        { id: 1, name: "Khursheeda Parveen", wfh: true },
-        { id: 2, name: "Employee 2", wfh: false },
-        { id: 3, name: "Employee 3", wfh: false },
-        { id: 4, name: "Employee 4", wfh: false },
-        { id: 5, name: "Employee 5", wfh: false },
-        { id: 6, name: "Employee 6", wfh: false },
-        { id: 7, name: "Employee 7", wfh: false },
-        { id: 8, name: "Employee 8", wfh: false },
-        { id: 9, name: "Employee 9", wfh: false },
-        { id: 10, name: "Employee 10", wfh: false },
+        // Each employee object includes an `onsite` flag.  This flag tracks
+        // whether the employee is working on-site at a client location.  The
+        // existing `wfh` flag continues to represent working from home.  If
+        // neither flag is true, the employee is considered to be in the office.
+        { id: 1, name: "Khursheeda Parveen", wfh: true, onsite: false },
+        { id: 2, name: "Employee 2", wfh: false, onsite: false },
+        { id: 3, name: "Employee 3", wfh: false, onsite: false },
+        { id: 4, name: "Employee 4", wfh: false, onsite: false },
+        { id: 5, name: "Employee 5", wfh: false, onsite: false },
+        { id: 6, name: "Employee 6", wfh: false, onsite: false },
+        { id: 7, name: "Employee 7", wfh: false, onsite: false },
+        { id: 8, name: "Employee 8", wfh: false, onsite: false },
+        { id: 9, name: "Employee 9", wfh: false, onsite: false },
+        { id: 10, name: "Employee 10", wfh: false, onsite: false },
       ];
 
       function AttendanceApp() {
@@ -63,7 +67,13 @@
         // Employees state: load from localStorage or use defaults
         const [employees, setEmployees] = useState(() => {
           const stored = localStorage.getItem("nexreq_employees");
-          return stored ? JSON.parse(stored) : DEFAULT_EMPLOYEES;
+          if (stored) {
+            // Parse stored employees and ensure each has an `onsite` property for
+            // compatibility with older data. Default to false if missing.
+            const parsed = JSON.parse(stored);
+            return parsed.map((e) => ({ ...e, onsite: e.onsite ?? false }));
+          }
+          return DEFAULT_EMPLOYEES;
         });
 
         // Account state: maps user names to an object with a passwordHash and admin flag.
@@ -104,6 +114,10 @@
         // New employee input
         const [newName, setNewName] = useState("");
         const [newWFH, setNewWFH] = useState(false);
+        // Track whether the new employee should be marked as onsite. This is
+        // mutually exclusive with WFH; if one is selected the other should
+        // automatically clear.
+        const [newOnsite, setNewOnsite] = useState(false);
         // Additional fields for admin when creating a new employee (email and password)
         const [newEmail, setNewEmail] = useState("");
         const [newEmpPassword, setNewEmpPassword] = useState("");
@@ -204,8 +218,14 @@
           }
           // Determine next available employee ID
           const nextId = employees.length ? Math.max(...employees.map((e) => e.id)) + 1 : 1;
-          // Create employee record
-          setEmployees([...employees, { id: nextId, name: name, wfh: newWFH }]);
+          // Create employee record. Ensure the new employee object contains both
+          // wfh and onsite flags based on the admin's selections. WFH and
+          // onsite are mutually exclusive so whichever is selected defines the
+          // location; the other remains false.
+          setEmployees([
+            ...employees,
+            { id: nextId, name: name, wfh: newWFH, onsite: newOnsite },
+          ]);
           // Create account with hashed password and email
           setAccounts({
             ...accounts,
@@ -219,12 +239,33 @@
           setNewEmail("");
           setNewEmpPassword("");
           setNewWFH(false);
+          setNewOnsite(false);
         };
 
-        // Toggle WFH setting for an employee (in admin mode)
+        // Toggle WFH setting for an employee (admin only). When WFH is toggled
+        // on, we automatically turn off the onsite flag to maintain exclusivity.
         const toggleWFH = (id) => {
           setEmployees(
-            employees.map((e) => (e.id === id ? { ...e, wfh: !e.wfh } : e))
+            employees.map((e) => {
+              if (e.id !== id) return e;
+              const newWfh = !e.wfh;
+              const newOnsite = newWfh ? false : e.onsite;
+              return { ...e, wfh: newWfh, onsite: newOnsite };
+            })
+          );
+        };
+
+        // Toggle Onsite setting for an employee (admin only). When onsite is
+        // toggled on, we automatically turn off the WFH flag to maintain
+        // exclusivity.
+        const toggleOnsite = (id) => {
+          setEmployees(
+            employees.map((e) => {
+              if (e.id !== id) return e;
+              const newOnsite = !e.onsite;
+              const newWfh = newOnsite ? false : e.wfh;
+              return { ...e, onsite: newOnsite, wfh: newWfh };
+            })
           );
         };
 
@@ -290,13 +331,21 @@
 
         // Clock in function
         const clockIn = (employee) => {
+          // Determine the location string based on the employee's flags. WFH
+          // takes precedence over onsite; onsite takes precedence over office.
+          let loc = "Office";
+          if (employee.wfh) {
+            loc = "WFH";
+          } else if (employee.onsite) {
+            loc = "Onsite";
+          }
           // Create new log entry
           const newLog = {
             id: logs.length ? Math.max(...logs.map((l) => l.id)) + 1 : 1,
             employeeId: employee.id,
             startTime: new Date().toISOString(),
             endTime: null,
-            location: employee.wfh ? "WFH" : "Office",
+            location: loc,
           };
           setLogs([...logs, newLog]);
         };
@@ -614,11 +663,11 @@
                     <div className="flex justify-between items-center mb-2">
                       <span className="font-medium">{emp.name}</span>
                       <span className="text-xs px-2 py-1 rounded bg-indigo-100 text-indigo-700">
-                        {emp.wfh ? "WFH" : "Office"}
+                        {emp.wfh ? "WFH" : emp.onsite ? "Onsite" : "Office"}
                       </span>
                     </div>
                     <div className="flex flex-col space-y-2">
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
                         {isClockedIn(emp.id) ? (
                           <button
                             className="px-3 py-1 bg-red-500 text-white rounded"
@@ -634,14 +683,22 @@
                             Clock In
                           </button>
                         )}
-                        {/* Toggle WFH for editing (admin only) */}
+                        {/* Toggle location flags for editing (admin only). We show both WFH and Onsite toggles when logged in as admin. */}
                         {isAdmin && (
-                          <button
-                            className="px-2 py-1 border rounded text-xs"
-                            onClick={() => toggleWFH(emp.id)}
-                          >
-                            Toggle WFH
-                          </button>
+                          <>
+                            <button
+                              className="px-2 py-1 border rounded text-xs"
+                              onClick={() => toggleWFH(emp.id)}
+                            >
+                              Toggle WFH
+                            </button>
+                            <button
+                              className="px-2 py-1 border rounded text-xs"
+                              onClick={() => toggleOnsite(emp.id)}
+                            >
+                              Toggle Onsite
+                            </button>
+                          </>
                         )}
                       </div>
                       {/* Admin controls: rename and remove employee */}
@@ -691,14 +748,36 @@
                     value={newEmpPassword}
                     onChange={(e) => setNewEmpPassword(e.target.value)}
                   />
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <label className="flex items-center gap-1">
                       <input
                         type="checkbox"
                         checked={newWFH}
-                        onChange={(e) => setNewWFH(e.target.checked)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setNewWFH(checked);
+                          if (checked) {
+                            // Ensure onsite is cleared when WFH is selected
+                            setNewOnsite(false);
+                          }
+                        }}
                       />
                       WFH
+                    </label>
+                    <label className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        checked={newOnsite}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setNewOnsite(checked);
+                          if (checked) {
+                            // Ensure WFH is cleared when Onsite is selected
+                            setNewWFH(false);
+                          }
+                        }}
+                      />
+                      Onsite
                     </label>
                     <button
                       className="px-4 py-2 bg-blue-500 text-white rounded"
