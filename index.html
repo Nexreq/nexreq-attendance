@@ -18,13 +18,15 @@
     <!-- Include Babel for JSX transformation in the browser -->
     <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
   </head>
-  <body class="bg-gray-100 text-gray-900">
+  <!-- Set a custom background colour using the user provided hex code. We drop the Tailwind background class and instead set an inline style. -->
+  <body class="text-gray-900" style="background-color: #255058;">
     <div class="container mx-auto p-4">
       <!-- Header with Nexreq logo and title -->
       <div class="flex items-center mb-4 space-x-2">
         <!-- Nexreq logo image. The SVG file is included alongside this index.html -->
         <img src="nexreq_logo.svg" alt="Nexreq Logo" class="h-10 w-auto" style="filter: invert(1);" />
-        <h1 class="text-2xl font-bold">Nexreq Attendance</h1>
+        <!-- Make the header text white so it stands out against the dark background -->
+        <h1 class="text-2xl font-bold text-white">Nexreq Attendance</h1>
       </div>
       <div id="root"></div>
     </div>
@@ -590,7 +592,8 @@
 
             {/* Employee list and clock actions */}
             <div>
-              <h2 className="text-xl font-semibold mb-2">{isAdmin ? "Employees" : "My Attendance"}</h2>
+            {/* Section heading for the employee list. We keep the default text color here; background changes are handled by the body style. */}
+            <h2 className="text-xl font-semibold mb-2">{isAdmin ? "Employees" : "My Attendance"}</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {(isAdmin ? employees : employees.filter((emp) => emp.name === user)).map((emp) => (
                   <div
