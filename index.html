@@ -20,7 +20,12 @@
   </head>
   <body class="bg-gray-100 text-gray-900">
     <div class="container mx-auto p-4">
-      <h1 class="text-2xl font-bold mb-4">Nexreq Attendance</h1>
+      <!-- Header with Nexreq logo and title -->
+      <div class="flex items-center mb-4 space-x-2">
+        <!-- Nexreq logo image. The SVG file is included alongside this index.html -->
+        <img src="nexreq_logo.svg" alt="Nexreq Logo" class="h-10 w-auto" style="filter: invert(1);" />
+        <h1 class="text-2xl font-bold">Nexreq Attendance</h1>
+      </div>
       <div id="root"></div>
     </div>
     <script type="text/babel">
@@ -202,6 +207,66 @@
           );
         };
 
+        // Remove an employee (admin only). This will remove the employee from the list,
+        // delete any associated logs, and remove their account if it exists. If the
+        // removed employee is currently logged in, log them out.  Note that logs are
+        // keyed by employeeId so removing the employee does not require updating
+        // existing log records beyond filtering.
+        const removeEmployee = (id) => {
+          const emp = employees.find((e) => e.id === id);
+          if (!emp) return;
+          // Confirm with admin before removing
+          if (!window.confirm(`Are you sure you want to remove ${emp.name}?`)) return;
+          // Remove from employees array
+          setEmployees(employees.filter((e) => e.id !== id));
+          // Remove logs associated with this employee
+          setLogs(logs.filter((log) => log.employeeId !== id));
+          // Remove account associated with this name if present
+          if (accounts[emp.name]) {
+            const newAccounts = { ...accounts };
+            delete newAccounts[emp.name];
+            setAccounts(newAccounts);
+            // If the removed employee is currently logged in, force logout
+            if (user === emp.name) {
+              setUser("");
+              setIsAdmin(false);
+              localStorage.removeItem("nexreq_user");
+            }
+          }
+        };
+
+        // Rename an employee (admin only). This prompts the admin for a new name,
+        // updates the employees list and corresponding account key. If the current
+        // logged in user is being renamed, update the user state accordingly.
+        const renameEmployee = (id) => {
+          const emp = employees.find((e) => e.id === id);
+          if (!emp) return;
+          const newName = window.prompt("Enter a new name for this employee", emp.name);
+          if (!newName) return;
+          const trimmed = newName.trim();
+          if (!trimmed || trimmed === emp.name) return;
+          // Update employees list
+          setEmployees(
+            employees.map((e) =>
+              e.id === id
+                ? { ...e, name: trimmed }
+                : e
+            )
+          );
+          // Update accounts: move account under new key if exists
+          if (accounts[emp.name]) {
+            const newAccounts = { ...accounts };
+            newAccounts[trimmed] = newAccounts[emp.name];
+            delete newAccounts[emp.name];
+            setAccounts(newAccounts);
+            // If the renamed employee is currently logged in, update user state
+            if (user === emp.name) {
+              setUser(trimmed);
+              localStorage.setItem("nexreq_user", trimmed);
+            }
+          }
+        };
+
         // Clock in function
         const clockIn = (employee) => {
           // Create new log entry
@@ -378,8 +443,12 @@
                     >
                       Don't have an account? Sign up
                     </button>
+                  {/*
+                    Informational note for administrative accounts.  We keep this brief to avoid
+                    disclosing any default credentials.  Rageeb and Mujtaaba have admin privileges by default.
+                  */}
                   <p className="text-xs text-gray-600 mt-2 text-center">
-                    Admin accounts are preset for <strong>Rageeb</strong> and <strong>Mujtaaba</strong> (default password: <em>admin123</em>).
+                    Admin accounts are preset for <strong>Rageeb</strong> and <strong>Mujtaaba</strong>.
                   </p>
                 </div>
               )}
@@ -422,30 +491,49 @@
                         {emp.wfh ? "WFH" : "Office"}
                       </span>
                     </div>
-                    <div className="flex gap-2">
-                      {isClockedIn(emp.id) ? (
-                        <button
-                          className="px-3 py-1 bg-red-500 text-white rounded"
-                          onClick={() => clockOut(emp)}
-                        >
-                          Clock Out
-                        </button>
-                      ) : (
-                        <button
-                          className="px-3 py-1 bg-green-500 text-white rounded"
-                          onClick={() => clockIn(emp)}
-                        >
-                          Clock In
-                        </button>
-                      )}
-                      {/* Toggle WFH for editing (admin only) */}
+                    <div className="flex flex-col space-y-2">
+                      <div className="flex gap-2">
+                        {isClockedIn(emp.id) ? (
+                          <button
+                            className="px-3 py-1 bg-red-500 text-white rounded"
+                            onClick={() => clockOut(emp)}
+                          >
+                            Clock Out
+                          </button>
+                        ) : (
+                          <button
+                            className="px-3 py-1 bg-green-500 text-white rounded"
+                            onClick={() => clockIn(emp)}
+                          >
+                            Clock In
+                          </button>
+                        )}
+                        {/* Toggle WFH for editing (admin only) */}
+                        {isAdmin && (
+                          <button
+                            className="px-2 py-1 border rounded text-xs"
+                            onClick={() => toggleWFH(emp.id)}
+                          >
+                            Toggle WFH
+                          </button>
+                        )}
+                      </div>
+                      {/* Admin controls: rename and remove employee */}
                       {isAdmin && (
-                        <button
-                          className="px-2 py-1 border rounded text-xs"
-                          onClick={() => toggleWFH(emp.id)}
-                        >
-                          Toggle WFH
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            className="px-2 py-1 border rounded text-xs"
+                            onClick={() => renameEmployee(emp.id)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="px-2 py-1 border rounded text-xs text-red-700"
+                            onClick={() => removeEmployee(emp.id)}
+                          >
+                            Remove
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
